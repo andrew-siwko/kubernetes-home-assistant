@@ -1,0 +1,5 @@
+# Seed configuration, copied into the /config PVC only when no
+# configuration.yaml exists there yet. After first start the copy on the PVC
+# is the live one -- edits here do not reach an already-initialised volume.
+
+default_config:

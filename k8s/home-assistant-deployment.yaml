@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: home-assistant
+  namespace: default
+  labels:
+    app: home-assistant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: home-assistant
+  strategy:
+    # RollingUpdate would try to bring up a new pod before the old one
+    # releases this ReadWriteOnce PVC, and Home Assistant must never have
+    # two instances writing the same /config (SQLite recorder DB) anyway.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: home-assistant
+    spec:
+      # The docker-builder Jenkins agent only produces amd64 images.
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      # Most of the local integrations (Cast, Apple TV, UPnP/DLNA, Matter)
+      # depend on mDNS/SSDP multicast and on devices calling back to HA,
+      # neither of which crosses the pod network.
+      hostNetwork: true
+      # Without this a hostNetwork pod uses the node's resolver and can't
+      # resolve cluster services such as mosquitto.
+      dnsPolicy: ClusterFirstWithHostNet
+      initContainers:
+      - name: seed-config
+        image: kregistry.siwko.org:5000/home-assistant:latest
+        imagePullPolicy: Always
+        # -n: never overwrite a configuration.yaml already on the PVC.
+        command: ["cp", "-n", "/defaults/configuration.yaml", "/config/configuration.yaml"]
+        volumeMounts:
+        - name: config
+          mountPath: /config
+      containers:
+      - name: home-assistant
+        image: kregistry.siwko.org:5000/home-assistant:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8123
+        env:
+        - name: TZ
+          value: America/New_York
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        # First boot (and boots after an upgrade that migrates the DB) can
+        # take minutes; the startupProbe holds off the liveness probe.
+        startupProbe:
+          tcpSocket:
+            port: 8123
+          periodSeconds: 10
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /manifest.json
+            port: 8123
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /manifest.json
+            port: 8123
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 5
+      volumes:
+      - name: config
+        persistentVolumeClaim:
+          claimName: home-assistant-config
