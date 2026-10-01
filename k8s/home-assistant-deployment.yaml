@@ -20,9 +20,22 @@ spec:
       labels:
         app: home-assistant
     spec:
-      # The docker-builder Jenkins agent only produces amd64 images.
-      nodeSelector:
-        kubernetes.io/arch: amd64
+      # Pinned to knode01-04: knode05-08 sit on winbox2's HDD, which is too
+      # slow for Home Assistant (a 646MB image pull took 17 minutes there
+      # and pushed the node into disk pressure). These are all amd64, which
+      # is the only arch the docker-builder Jenkins agent produces.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - knode01
+                - knode02
+                - knode03
+                - knode04
       # Most of the local integrations (Cast, Apple TV, UPnP/DLNA, Matter)
       # depend on mDNS/SSDP multicast and on devices calling back to HA,
       # neither of which crosses the pod network.
